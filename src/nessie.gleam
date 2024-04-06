@@ -116,6 +116,7 @@ pub fn ip_to_string(ip_addr: IPAddress) -> Result(String, String) {
 pub fn string_to_ip(ip_addr: String) -> Result(IPAddress, String) {
   ip_addr
   |> parse_address()
+  |> result.map_error(atom.to_string)
   |> result.map(fn(dyn) {
     dyn
     |> dynamic.tuple4(dynamic.int, dynamic.int, dynamic.int, dynamic.int)
@@ -135,9 +136,9 @@ pub fn string_to_ip(ip_addr: String) -> Result(IPAddress, String) {
       )
       |> result.map(IPV6)
     })
-    |> result.unwrap(IPV4(#(0, 0, 0, 0)))
+    |> result.replace_error("decode_error")
   })
-  |> result.map_error(atom.to_string)
+  |> result.flatten()
 }
 
 /// Looks up a record of the specified type for the given name.

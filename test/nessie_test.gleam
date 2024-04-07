@@ -42,30 +42,35 @@ pub fn ipv4_string_to_address_fails_for_invalid_ip_test() {
 }
 
 pub fn ipv6_string_to_address_succeeds_test() {
-  let r =
-    nessie.string_to_ip("64:c8:12c:0:1f4:258:2bc:320")
+  let r = nessie.string_to_ip("64:c8:12c:0:1f4:258:2bc:320")
   should.equal(r, Ok(nessie.IPV6(#(100, 200, 300, 0, 500, 600, 700, 800))))
 }
 
 pub fn cname_test() {
   let assert Ok(hostent) =
-    nessie.getbyname("www.growtherapy.com", nessie.CNAME, nessie.Infinity)
+    nessie.getbyname(
+      "cname.nessie.ckreiling.dev",
+      nessie.CNAME,
+      nessie.Infinity,
+    )
 
-  should.equal(hostent.addr_list, ["growtherapy.com"])
+  should.equal(hostent.addr_list, ["nessie.ckreiling.dev"])
 }
 
 pub fn txt_test() {
   let assert Ok(hostent) =
-    nessie.getbyname("example.com", nessie.TXT, nessie.Infinity)
+    nessie.getbyname("nessie.ckreiling.dev", nessie.TXT, nessie.Infinity)
 
-  should.equal(hostent.addr_list, ["growtherapy.com"])
+  should.equal(hostent.addr_list, ["Hello, Nessie Test!"])
 }
 
-pub fn ipv4_test() {
-  let assert Ok(hostent) =
-    nessie.getbyname_ipv4("ipv4only.arpa", nessie.Infinity)
+const nessie_a_record_ips = [#(192, 168, 0, 0), #(192, 168, 0, 1)]
 
-  let expected_addrs = set.from_list([#(192, 0, 0, 170), #(192, 0, 0, 171)])
+pub fn getbyname_ipv4_test() {
+  let assert Ok(hostent) =
+    nessie.getbyname_ipv4("nessie.ckreiling.dev", nessie.Infinity)
+
+  let expected_addrs = set.from_list(nessie_a_record_ips)
   let addrs = set.from_list(hostent.addr_list)
 
   should.equal(expected_addrs, addrs)
@@ -73,15 +78,29 @@ pub fn ipv4_test() {
 
 pub fn lookup_ipv4_test() {
   let addrs =
-    nessie.lookup_ipv4("google.com", nessie.In, [
+    nessie.lookup_ipv4("nessie.ckreiling.dev", nessie.In, [
       nessie.Nameservers([#(nessie.IPV4(#(1, 1, 1, 1)), 53)]),
     ])
 
-  should.equal(addrs, [#(0, 0, 0, 0)])
+  let expected_addrs = set.from_list(nessie_a_record_ips)
+  let addrs = set.from_list(addrs)
+
+  should.equal(expected_addrs, addrs)
 }
 
-pub fn mx_test() {
-  let assert Ok(hostent) = nessie.getbyname_mx("google.com", nessie.Infinity)
+pub fn getbyname_mx_test() {
+  let assert Ok(hostent) =
+    nessie.getbyname_mx("nessie.ckreiling.dev", nessie.Infinity)
+  should.equal(hostent.addr_list, [
+    nessie.MXRecord(10, "test.nessie.ckreiling.dev"),
+  ])
+}
 
-  should.equal(hostent.addr_list, [nessie.MXRecord(10, "smtp.google.com")])
+pub fn getbyname_soa_test() {
+  let assert Ok(hostent) =
+    nessie.getbyname_soa("ckreiling.dev", nessie.Infinity)
+
+  let assert [
+    nessie.SOARecord(_, "cloud-dns-hostmaster.google.com", _, _, _, _, _),
+  ] = hostent.addr_list
 }

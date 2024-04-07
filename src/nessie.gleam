@@ -1,13 +1,13 @@
 //// A collection of functions for resolving DNS names in Gleam programs targeting Erlang.
 ////
 //// The functions in this module are implemented using Erlang's built-in
-//// `inet_res` module. The names of the functions and their return types 
-//// map directly to the corresponding functions & types in the `inet_res` module.
+//// `inet_res` and `inet` modules. Most of the functions and types are simply
+//// Gleam representations of their Erlang counterparts.
 
 import gleam/list
 import gleam/function
 import gleam/result
-import gleam/dynamic.{type Dynamic}
+import gleam/dynamic.{type Decoder, type Dynamic}
 import gleam/erlang/atom.{type Atom}
 import gleam/erlang/charlist.{type Charlist}
 
@@ -106,6 +106,8 @@ pub type StringRecordType {
 }
 
 /// Converts an IP address to a string.
+///
+/// For more detail, see the `inet` module's [ntoa/1 function docs](https://www.erlang.org/doc/man/inet#ntoa-1)
 pub fn ip_to_string(ip_addr: IPAddress) -> Result(String, String) {
   ip_addr
   |> ntoa()
@@ -113,6 +115,11 @@ pub fn ip_to_string(ip_addr: IPAddress) -> Result(String, String) {
   |> result.map_error(atom.to_string)
 }
 
+/// Converts a string to an IP address.
+///
+/// If the given string is not a valid IP address, this function returns an error.
+///
+/// For more detail, see the `inet` module's [parse_address/1 function docs](https://www.erlang.org/doc/man/inet#parse_address-1).
 pub fn string_to_ip(ip_addr: String) -> Result(IPAddress, String) {
   ip_addr
   |> parse_address()
@@ -121,8 +128,23 @@ pub fn string_to_ip(ip_addr: String) -> Result(IPAddress, String) {
     dyn
     |> dynamic.tuple4(dynamic.int, dynamic.int, dynamic.int, dynamic.int)
     |> result.map(IPV4)
-    |> result.lazy_or(fn() {
+    |> result.or(
       dyn
+      |> ip_decoder(),
+    )
+    |> result.replace_error("decode_error")
+  })
+  |> result.flatten()
+}
+
+/// Returns a `gleam/dynamic.Decoder` for decoding an IP address tuple.
+pub fn ip_decoder() -> Decoder(IPAddress) {
+  fn(value) {
+    value
+    |> dynamic.tuple4(dynamic.int, dynamic.int, dynamic.int, dynamic.int)
+    |> result.map(IPV4)
+    |> result.lazy_or(fn() {
+      value
       |> dynamic.decode8(
         fn(i1, i2, i3, i4, i5, i6, i7, i8) { #(i1, i2, i3, i4, i5, i6, i7, i8) },
         dynamic.element(0, dynamic.int),
@@ -136,9 +158,7 @@ pub fn string_to_ip(ip_addr: String) -> Result(IPAddress, String) {
       )
       |> result.map(IPV6)
     })
-    |> result.replace_error("decode_error")
-  })
-  |> result.flatten()
+  }
 }
 
 /// Looks up a record of the specified type for the given name.
@@ -265,16 +285,16 @@ pub fn gethostbyaddr(
   |> result.map_error(to_dns_err)
 }
 
-fn to_erl_resolver_option(option: ResolverOption) -> Dynamic {
-  case option {
-    INet6(inet6) -> dynamic.from(#(atom.create_from_string("inet6"), inet6))
-    Recurse(recurse) ->
-      dynamic.from(#(atom.create_from_string("recurse"), recurse))
-    Retry(retry) -> dynamic.from(#(atom.create_from_string("retry"), retry))
-    TimeoutMillis(timeout) ->
-      dynamic.from(#(atom.create_from_string("timeout"), timeout))
-    NxdomainReply(nxdomain_reply) ->
-      dynamic.from(#(atom.create_from_string("nxdomain_reply"), nxdomain_reply))
+fn to_erl_resolver_option(option: ResolverOption) -> ErlOptionTuple {
+  let #(opt_name, opt_value) = case option {
+    INet6(inet6) -> #("inet6", dynamic.from(inet6))
+    Recurse(recurse) -> #("recurse", dynamic.from(recurse))
+    Retry(retry) -> #("retry", dynamic.from(retry))
+    TimeoutMillis(timeout) -> #("timeout", dynamic.from(timeout))
+    NxdomainReply(nxdomain_reply) -> #(
+      "nxdomain_reply",
+      dynamic.from(nxdomain_reply),
+    )
     Nameservers(nameservers) -> {
       let erl_nameservers =
         list.map(nameservers, fn(ip_port) {
@@ -286,10 +306,15 @@ fn to_erl_resolver_option(option: ResolverOption) -> Dynamic {
 
           #(ip, port)
         })
-      dynamic.from(#(atom.create_from_string("nameservers"), erl_nameservers))
+      #("nameservers", dynamic.from(erl_nameservers))
     }
   }
+
+  #(atom.create_from_string(opt_name), opt_value)
 }
+
+type ErlOptionTuple =
+  #(Atom, Dynamic)
 
 type ErlHostent(r) =
   #(Atom, Dynamic, List(Dynamic), Atom, Int, List(r))
@@ -333,7 +358,7 @@ fn to_hostent(
 }
 
 fn from_dns_name(dyn: Dynamic) -> String {
-  let atom_result_lazy = fn() {
+  let atom_from_dynamic = fn() {
     dyn
     |> atom.from_dynamic()
     |> result.map(atom.to_string)
@@ -342,7 +367,7 @@ fn from_dns_name(dyn: Dynamic) -> String {
   dyn
   |> charlist_from_dynamic()
   |> result.map(charlist.to_string)
-  |> result.lazy_or(atom_result_lazy)
+  |> result.lazy_or(atom_from_dynamic)
   |> result.unwrap("")
 }
 
@@ -374,7 +399,7 @@ fn do_getbyname_string(
   timeout: Timeout,
 ) -> Result(ErlHostent(Charlist), Atom)
 
-@external(erlang, "nessie_inet_res_ffi", "getbyname")
+@external(erlang, "nessie_inet_res_ffi", "getbyname_soa")
 fn do_getbyname_soa(
   name: String,
   timeout: Timeout,
@@ -408,14 +433,14 @@ fn do_gethostbyaddr(
 fn do_lookup_ipv4(
   name: String,
   class: DnsClass,
-  options: List(Dynamic),
+  options: List(ErlOptionTuple),
 ) -> List(IPV4)
 
 @external(erlang, "nessie_inet_res_ffi", "lookup_ipv6")
 fn do_lookup_ipv6(
   name: String,
   class: DnsClass,
-  options: List(Dynamic),
+  options: List(ErlOptionTuple),
 ) -> List(IPV6)
 
 @external(erlang, "nessie_inet_res_ffi", "lookup")
@@ -423,21 +448,21 @@ fn do_lookup_string(
   name: String,
   class: DnsClass,
   t: StringRecordType,
-  options: List(Dynamic),
+  options: List(ErlOptionTuple),
 ) -> List(Charlist)
 
 @external(erlang, "nessie_inet_res_ffi", "lookup_soa")
 fn do_lookup_soa(
   name: String,
   class: DnsClass,
-  options: List(Dynamic),
+  options: List(ErlOptionTuple),
 ) -> List(ErlSoa)
 
 @external(erlang, "nessie_inet_res_ffi", "lookup_mx")
 fn do_lookup_mx(
   name: String,
   class: DnsClass,
-  options: List(Dynamic),
+  options: List(ErlOptionTuple),
 ) -> List(ErlMx)
 
 @external(erlang, "nessie_inet_ffi", "ntoa")

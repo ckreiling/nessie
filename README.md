@@ -50,7 +50,7 @@ to asynchronous programming (processes & event loops, respectively),
 it's not currently possible in Gleam to write a DNS client supporting
 both targets.
 
-For more information, see the following Discord thread: https://discord.com/channels/768594524158427167/1224351163797868575
+For more information, see [this Discord thread](https://discord.com/channels/768594524158427167/1224351163797868575). 
 
 ## Development
 

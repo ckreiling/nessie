@@ -5,11 +5,10 @@
 
 A friendly DNS client for Gleam programs targeting Erlang.
 
-⚠️ This library is new and untested, use at your own risk ⚠️
-
 ```sh
 gleam add nessie
 ```
+
 ```gleam
 import nessie
 import gleam/io
